@@ -1,7 +1,9 @@
+import 'dart:convert';
+
 import 'package:cryptocurrency_price_app/src/presentation/misc/app_colors.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:syncfusion_flutter_charts/charts.dart';
 import '../bloc/websocket_bloc.dart';
 import '../bloc/websocket_event.dart';
 import '../bloc/websocket_state.dart';
@@ -14,54 +16,173 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  List<FlSpot> chartData = [];
+  List<TradingData> chartData = [];
+  Map<String, SymbolData> watchlistData = {};
+  late TooltipBehavior tooltipBehavior;
+
+  @override
+  void initState() {
+    tooltipBehavior = TooltipBehavior(enable: true);
+    super.initState();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("WebSocket Crypto Data"),
       ),
-      body: BlocBuilder<WebSocketBloc, WebSocketState>(
-        builder: (context, state) {
-          if (state is WebSocketInitial) {
-            return const Center(
-              child: Text('Connectting'),
-            );
-          } else if (state is WebSocketConnected) {
-            return const Center(child: Text("Connected"));
-          } else if (state is WebSocketDisconnected) {
-            return const Center(child: Text("Disconnected"));
-          } else if (state is WebSocketMessageReceivedState) {
-            final message = state.message;
-            final price = double.tryParse(_extractPrice(message)) ?? 0;
-
-            /*  if (chartData.length > 50) {
-              chartData
-                  .removeAt(0); 
-            } */
-            chartData.add(FlSpot(chartData.length.toDouble(), price));
-
-            return ListView(
-              children: [
-                SizedBox(
-                  height: 500,
-                  child: LineChart(
-                    LineChartData(
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: chartData,
-                          isCurved: true,
-                          color: Colors.blue,
-                        ),
-                      ],
+      body: Column(
+        children: [
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.5,
+            child: BlocBuilder<WebSocketBloc, WebSocketState>(
+              builder: (context, state) {
+                if (state is WebSocketInitial) {
+                  return const Center(
+                    child: Text('Connectting'),
+                  );
+                } else if (state is WebSocketConnected) {
+                  return const Center(child: Text("Connected"));
+                } else if (state is WebSocketDisconnected) {
+                  return const Center(child: Text("Disconnected"));
+                } else if (state is WebSocketMessageReceivedState) {
+                  final message = state.message;
+                  final double price =
+                      double.tryParse(_extractPrice(message)) ?? 0;
+                  final DateTime time = _extractTime(message);
+                  chartData.add(TradingData(time, price));
+                  if (chartData.length > 1) {
+                    watchlistData = _parseWatchlist(message);
+                  }
+                  return SfCartesianChart(
+                    tooltipBehavior: tooltipBehavior,
+                    margin: const EdgeInsets.only(
+                      bottom: 8.0,
+                      left: 0,
+                      right: 0,
+                      top: 0,
                     ),
+                    plotAreaBorderWidth: 0,
+                    primaryXAxis: const DateTimeAxis(
+                      intervalType: DateTimeIntervalType.seconds,
+                      edgeLabelPlacement: EdgeLabelPlacement.shift,
+                      majorGridLines: MajorGridLines(width: 0),
+                      minorGridLines: MinorGridLines(width: 0),
+                      axisLine: AxisLine(width: 0, color: Colors.transparent),
+                    ),
+                    primaryYAxis: const NumericAxis(
+                      labelPosition: ChartDataLabelPosition.outside,
+                      labelAlignment: LabelAlignment.end,
+                      edgeLabelPlacement: EdgeLabelPlacement.none,
+                      labelStyle: TextStyle(fontSize: 8),
+                      majorGridLines: MajorGridLines(width: 0),
+                      tickPosition: TickPosition.outside,
+                      minorGridLines: MinorGridLines(width: 0),
+                      axisLine: AxisLine(width: 0, color: Colors.transparent),
+                      majorTickLines:
+                          MajorTickLines(size: 10, color: Colors.transparent),
+                      rangePadding: ChartRangePadding.normal,
+                      maximum: 80000,
+                    ),
+                    series: <CartesianSeries>[
+                      SplineAreaSeries<TradingData, DateTime>(
+                        dataSource: chartData,
+                        xValueMapper: (TradingData data, _) => data.time,
+                        yValueMapper: (TradingData data, _) => data.price,
+                        color: Colors.lightBlueAccent.withOpacity(0.5),
+                        borderColor: Colors.blue,
+                        borderWidth: 2,
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.lightBlueAccent.withOpacity(0.3),
+                            Colors.transparent,
+                          ],
+                          stops: const [0.0, 1.0],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                        dataLabelSettings: DataLabelSettings(
+                          isVisible: true,
+                          labelAlignment: ChartDataLabelAlignment.bottom,
+                          textStyle: const TextStyle(color: Colors.black),
+                          builder: (dynamic data, dynamic point, dynamic series,
+                              int pointIndex, int seriesIndex) {
+                            return Text(
+                              '${data.time.hour}:${data.time.minute.toString().padLeft(2, '0')}',
+                              style: const TextStyle(fontSize: 6),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return const Center(child: Text("Unknown state"));
+              },
+            ),
+          ),
+          BlocBuilder<WebSocketBloc, WebSocketState>(
+            builder: (context, state) {
+              if (state is WebSocketMessageReceivedState) {
+                final btcData =
+                    watchlistData['BTC-USD'] ?? SymbolData('BTC-USD', 0, 0, 0);
+                final ethData =
+                    watchlistData['ETH-USD'] ?? SymbolData('ETH-USD', 0, 0, 0);
+                return Container(
+                  height: MediaQuery.of(context).size.height * 0.18,
+                  width: MediaQuery.of(context).size.width * 0.92,
+                  decoration: BoxDecoration(
+                    color: AppColors.contentColorBlack.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                ),
-              ],
-            );
-          }
-          return const Center(child: Text("Unknown state"));
-        },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(8, 10, 0, 0),
+                        child: Text(
+                          "Watchlist",
+                          style: TextStyle(
+                              color: AppColors.contentColorWhite, fontSize: 16),
+                        ),
+                      ),
+                      const Divider(thickness: 0.5),
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(8, 0, 8, 0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("Symbol",
+                                style: TextStyle(
+                                    color: AppColors.contentColorWhite,
+                                    fontSize: 12)),
+                            Text("Last",
+                                style: TextStyle(
+                                    color: AppColors.contentColorWhite,
+                                    fontSize: 12)),
+                            Text("Chg",
+                                style: TextStyle(
+                                    color: AppColors.contentColorWhite,
+                                    fontSize: 12)),
+                            Text("Chg%",
+                                style: TextStyle(
+                                    color: AppColors.contentColorWhite,
+                                    fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const Divider(thickness: 0.5),
+                      _buildWatchlistRow(btcData),
+                      _buildWatchlistRow(ethData),
+                    ],
+                  ),
+                );
+              }
+              return const Center(child: SizedBox());
+            },
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
@@ -72,167 +193,70 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Map<String, SymbolData> _parseWatchlist(String message) {
+    final dynamic decoded = jsonDecode(message);
+    if (decoded is Map<String, dynamic>) {
+      final symbol = decoded['s'] as String;
+      final lastPrice = double.tryParse(decoded['p'].toString()) ?? 0;
+      final change = double.tryParse(decoded['dc'].toString()) ?? 0;
+      final changePercent = double.tryParse(decoded['dd'].toString()) ?? 0;
+      watchlistData[symbol] =
+          SymbolData(symbol, lastPrice, change, changePercent);
+    }
+    return watchlistData;
+  }
+
   String _extractPrice(String message) {
     final RegExp regExp = RegExp(r'"p":"([\d.]+)"');
     final match = regExp.firstMatch(message);
     return match != null ? match.group(1)! : "0";
   }
-}
 
-class LineChartSample2 extends StatefulWidget {
-  final List<FlSpot> data;
-  const LineChartSample2({
-    super.key,
-    required this.data,
-  });
-
-  @override
-  State<LineChartSample2> createState() => _LineChartSample2State();
-}
-
-class _LineChartSample2State extends State<LineChartSample2> {
-  List<Color> gradientColors = [
-    AppColors.contentColorCyan,
-    AppColors.contentColorBlue,
-  ];
-
-  bool showAvg = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: <Widget>[
-        AspectRatio(
-          aspectRatio: 1.70,
-          child: Padding(
-            padding: const EdgeInsets.only(
-              right: 18,
-              left: 12,
-              top: 24,
-              bottom: 12,
-            ),
-            child: LineChart(
-              mainData(),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget bottomTitleWidgets(double value, TitleMeta meta) {
-    const style = TextStyle(
-      fontWeight: FontWeight.bold,
-      fontSize: 16,
-    );
-    Widget text;
-    switch (value.toInt()) {
-      case 2:
-        text = const Text('MAR', style: style);
-        break;
-      case 5:
-        text = const Text('JUN', style: style);
-        break;
-      case 8:
-        text = const Text('SEP', style: style);
-        break;
-      default:
-        text = const Text('', style: style);
-        break;
+  DateTime _extractTime(String message) {
+    final RegExp regExp = RegExp(r'"t":(\d+)');
+    final match = regExp.firstMatch(message);
+    if (match != null) {
+      final timestamp = int.tryParse(match.group(1)!) ?? 0;
+      return DateTime.fromMillisecondsSinceEpoch(timestamp);
+    } else {
+      return DateTime.now();
     }
-
-    return SideTitleWidget(
-      axisSide: meta.axisSide,
-      child: text,
-    );
   }
 
-  Widget leftTitleWidgets(double value, TitleMeta meta) {
-    const style = TextStyle(
-      fontWeight: FontWeight.bold,
-      fontSize: 15,
-    );
-
-    return Text(value.toString(), style: style, textAlign: TextAlign.left);
-  }
-
-  LineChartData mainData() {
-    return LineChartData(
-      gridData: FlGridData(
-        show: true,
-        drawVerticalLine: true,
-        horizontalInterval: 1,
-        verticalInterval: 1,
-        getDrawingHorizontalLine: (value) {
-          return const FlLine(
-            color: AppColors.mainGridLineColor,
-            strokeWidth: 1,
-          );
-        },
-        getDrawingVerticalLine: (value) {
-          return const FlLine(
-            color: AppColors.mainGridLineColor,
-            strokeWidth: 1,
-          );
-        },
+  Widget _buildWatchlistRow(SymbolData data) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(data.symbol,
+              style: const TextStyle(
+                  color: AppColors.contentColorWhite, fontSize: 12)),
+          Text(data.lastPrice.toString(),
+              style: const TextStyle(
+                  color: AppColors.contentColorWhite, fontSize: 12)),
+          Text(data.change.toString(),
+              style: const TextStyle(
+                  color: AppColors.contentColorWhite, fontSize: 12)),
+          Text('${data.changePercent.toStringAsFixed(2)}%',
+              style: const TextStyle(
+                  color: AppColors.contentColorWhite, fontSize: 12)),
+        ],
       ),
-      titlesData: FlTitlesData(
-        show: true,
-        rightTitles: const AxisTitles(
-          sideTitles: SideTitles(showTitles: false),
-        ),
-        topTitles: const AxisTitles(
-          sideTitles: SideTitles(showTitles: false),
-        ),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 30,
-            interval: 1,
-            getTitlesWidget: bottomTitleWidgets,
-          ),
-        ),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            interval: 1,
-            getTitlesWidget: (value, meta) {
-              return Text(value.toString());
-            },
-            reservedSize: 42,
-          ),
-        ),
-      ),
-      borderData: FlBorderData(
-        show: true,
-        border: Border.all(color: const Color(0xff37434d)),
-      ),
-      minX: 0,
-      maxX: 11,
-      minY: 0,
-      maxY: 6,
-      lineBarsData: [
-        LineChartBarData(
-          spots: widget.data,
-          isCurved: true,
-          gradient: LinearGradient(
-            colors: gradientColors,
-          ),
-          barWidth: 5,
-          isStrokeCapRound: true,
-          dotData: const FlDotData(
-            show: false,
-          ),
-          belowBarData: BarAreaData(
-            show: true,
-            gradient: LinearGradient(
-              colors: gradientColors
-                  .map((color) => color.withOpacity(0.3))
-                  .toList(),
-            ),
-          ),
-        ),
-      ],
     );
   }
+}
+
+class TradingData {
+  TradingData(this.time, this.price);
+  final DateTime time;
+  final double price;
+}
+
+class SymbolData {
+  SymbolData(this.symbol, this.lastPrice, this.change, this.changePercent);
+  final String symbol;
+  final double lastPrice;
+  final double change;
+  final double changePercent;
 }
