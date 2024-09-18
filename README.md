@@ -11,6 +11,7 @@ Before running this project, make sure you have the following:
 - Android Studio or Visual Studio Code (recommended for development)
 - **Android** or **iOS** emulator or a physical device for running the project
 - using branch dev
+- before run project run command flutter pub get in terminal project
 
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
