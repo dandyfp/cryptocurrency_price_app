@@ -23,13 +23,20 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     tooltipBehavior = TooltipBehavior(enable: true);
+    Future.delayed(
+        Durations.medium1,
+        () => setState(() {
+              BlocProvider.of<WebSocketBloc>(context).add(ConnectToWebSocket());
+            }));
     super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: const Text("WebSocket Crypto Data"),
       ),
       body: Column(
@@ -184,12 +191,12 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      /* floatingActionButton: FloatingActionButton(
         onPressed: () {
           BlocProvider.of<WebSocketBloc>(context).add(ConnectToWebSocket());
         },
         child: const Icon(Icons.close),
-      ),
+      ), */
     );
   }
 
